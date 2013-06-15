@@ -1,0 +1,210 @@
+//=============================================================================
+//                                                                            
+//   Example code for the full-day course
+//
+//   M. Botsch, M. Pauly, C. Roessl, S. Bischoff, L. Kobbelt,
+//   "Geometric Modeling Based on Triangle Meshes"
+//   held at SIGGRAPH 2006, Boston, and Eurographics 2006, Vienna.
+//
+//   Copyright (C) 2006 by  Computer Graphics Laboratory, ETH Zurich, 
+//                      and Computer Graphics Group,      RWTH Aachen
+//
+//                                                                            
+//-----------------------------------------------------------------------------
+//                                                                            
+//                                License                                     
+//                                                                            
+//   This program is free software; you can redistribute it and/or
+//   modify it under the terms of the GNU General Public License
+//   as published by the Free Software Foundation; either version 2
+//   of the License, or (at your option) any later version.
+//   
+//   This program is distributed in the hope that it will be useful,
+//   but WITHOUT ANY WARRANTY; without even the implied warranty of
+//   MERCHANTABILITY or FITNESS FOR A PARTICULAR PURPOSE.  See the
+//   GNU General Public License for more details.
+//   
+//   You should have received a copy of the GNU General Public License
+//   along with this program; if not, write to the Free Software
+//   Foundation, Inc., 51 Franklin Street, Fifth Floor, 
+//   Boston, MA  02110-1301, USA.
+//                                                                            
+//=============================================================================
+//=============================================================================
+//
+//  CLASS SmoothingViewer - IMPLEMENTATION
+//
+//=============================================================================
+
+
+//== INCLUDES =================================================================
+
+#include "SmoothingViewer.hh"
+#include <windows.h>
+
+
+//== IMPLEMENTATION ========================================================== 
+
+
+SmoothingViewer::
+SmoothingViewer(const char* _title, int _width, int _height)
+  : QualityViewer(_title, _width, _height)
+{ 
+  mesh_.add_property(vpos_);
+}
+
+
+//-----------------------------------------------------------------------------
+
+
+void
+SmoothingViewer::
+keyboard(int key, int x, int y)
+{
+	switch (toupper(key))
+	{
+	case 'O':
+		{
+			OPENFILENAME ofn={0};
+			char szFileName[MAX_PATH]={0};
+			ofn.lStructSize=sizeof(OPENFILENAME);
+			ofn.Flags=OFN_ALLOWMULTISELECT|OFN_EXPLORER;
+			ofn.lpstrFilter="All Files (*.*)\0*.*\0";
+			ofn.lpstrFile=szFileName;
+			ofn.nMaxFile=MAX_PATH;
+			if(GetOpenFileName(&ofn))
+			{
+				mesh_.clear();
+				//MeshViewer::open_mesh(szFileName);
+				open_mesh(szFileName);
+			}
+		}
+		break;
+	case 'N':
+		{
+			std::cout << "10 Laplace-Beltrami smoothing iterations: " << std::flush;
+			smooth(10);
+			calc_weights();
+			calc_mean_curvature();
+			calc_uniform_mean_curvature();
+			calc_gauss_curvature();
+			calc_triangle_quality();
+			face_color_coding();
+
+			glutPostRedisplay();
+			std::cout << "done\n";
+			break;
+		}
+	case 'T': {
+			doTangential = true;
+			std::cout << "10 Tangential uniform smoothing iterations: " << std::flush;
+			uniform_smooth(10);
+			calc_weights();
+			calc_mean_curvature();
+			calc_uniform_mean_curvature();
+			calc_gauss_curvature();
+			calc_triangle_quality();
+			face_color_coding();
+			glutPostRedisplay();
+			std::cout << "done\n";
+			break;
+			  }
+	case 'U':
+		{
+			doTangential = false;
+			std::cout << "10 uniform smoothing iterations: " << std::flush;
+			uniform_smooth(10);
+			calc_weights();
+			calc_mean_curvature();
+			calc_uniform_mean_curvature();
+			calc_gauss_curvature();
+			calc_triangle_quality();
+			face_color_coding();
+			glutPostRedisplay();
+			std::cout << "done\n";
+			break;
+		}
+
+	default:
+		{
+			QualityViewer::keyboard(key, x, y);
+			break;
+		}
+	}
+}
+
+
+//-----------------------------------------------------------------------------
+
+
+void 
+SmoothingViewer::
+smooth(unsigned int _iters)
+{
+	// ------------- IMPLEMENT HERE ---------
+	// TASK 3.3.b Smoothing using the Laplace-Beltrami.
+	// Use eweight_ properties for the individual edge weights
+	// and their sum for the normalization term.
+	// ------------- IMPLEMENT HERE ---------
+	++_iters;
+	while(--_iters) {
+		Mesh::VertexIter viter = mesh_.vertices_begin();
+		Mesh::VertexIter vend = mesh_.vertices_end();
+		for(;viter != vend; ++viter) {
+			Mesh::Point oldPos = mesh_.point(viter);
+			Mesh::Point laplace_beltarmi = mesh_.property(Lb_, viter);
+			Mesh::Point newPos = oldPos + laplace_beltarmi * 0.5;
+
+			mesh_.set_point(viter, newPos);
+		}
+		mesh_.update_normals();
+
+		calc_weights();
+		calc_mean_curvature();
+	}
+}
+
+//-----------------------------------------------------------------------------
+
+void 
+SmoothingViewer::
+uniform_smooth(unsigned int _iters)
+{
+	// ------------- IMPLEMENT HERE ---------
+	// TASK 3.1.b Smoothing using the uniform Laplacian approximation
+	// ------------- IMPLEMENT HERE ---------
+	++_iters;
+	std::vector<Vec3f> normals;
+	if(doTangential) {
+		for(Mesh::VertexIter v = mesh_.vertices_begin(); v != mesh_.vertices_end(); ++v) {
+			Vec3f v_normal = mesh_.normal(v);
+			normals.push_back(v_normal);
+		}
+	}
+
+	while(--_iters) {
+		Mesh::VertexIter viter = mesh_.vertices_begin();
+		Mesh::VertexIter vend = mesh_.vertices_end();
+		int vid = 0;
+		for(;viter != vend; ++viter) {
+			Mesh::Point oldPos = mesh_.point(viter);
+			Mesh::Point laplace_uniform = mesh_.property(Lu_, viter);
+
+			if(doTangential) {
+				Vec3f n = normals[vid];
+				laplace_uniform -= (laplace_uniform|n)*n.normalize();
+			}
+
+			Mesh::Point newPos = oldPos + laplace_uniform * 0.5;
+
+			mesh_.set_point(viter, newPos);
+			++vid;
+		}
+		mesh_.update_normals();
+
+		calc_uniform_mean_curvature();
+	}
+
+}
+
+//=============================================================================
